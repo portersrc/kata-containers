@@ -33,3 +33,9 @@ pub mod confidential_data_hub_ttrpc;
 
 #[cfg(feature = "async")]
 pub mod confidential_data_hub_ttrpc_async;
+
+pub mod encrypted_mesh;
+pub mod encrypted_mesh_ttrpc;
+
+#[cfg(feature = "async")]
+pub mod encrypted_mesh_ttrpc_async;

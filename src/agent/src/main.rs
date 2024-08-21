@@ -59,8 +59,8 @@ mod util;
 mod version;
 mod watcher;
 
-use cdh::CDHClient;
-use config::GuestComponentsProcs;
+use cdh::{CDHClient, EncMeshOptions};
+use config::{GuestComponentsProcs, get_bool_value};
 use mount::{cgroups_mount, general_mount};
 use sandbox::Sandbox;
 use signal::setup_signal_handler;
@@ -465,7 +465,18 @@ fn init_attestation_components(logger: &Logger, config: &AgentConfig) -> Result<
         return Ok(None);
     }
 
+    info!(logger, "porter testing kata agent loging");
+    info!(logger, "porter agentconfig: {:?}", config);
     debug!(logger, "spawning attestation-agent process {}", AA_PATH);
+
+    let metrysomething: bool = get_bool_value("my_value=true")?;
+    info!(logger, "porter metrysomething: {}", metrysomething);
+    if config.enable_encrypted_mesh {
+        info!(logger, "porter encrypted mesh is enabled");
+    } else {
+        info!(logger, "porter encrypted mesh is not enabled");
+    }
+
     launch_process(
         logger,
         AA_PATH,
@@ -500,12 +511,18 @@ fn init_attestation_components(logger: &Logger, config: &AgentConfig) -> Result<
         logger,
         CDH_PATH,
         &vec![],
+        //&vec!["-c", "/opt/enc-mesh/cdh-config.json"],
         CDH_SOCKET,
         DEFAULT_LAUNCH_PROCESS_TIMEOUT,
     )
     .map_err(|e| anyhow!("launch_process {} failed: {:?}", CDH_PATH, e))?;
 
-    let cdh_client = CDHClient::new().context("Failed to create CDH Client")?;
+
+    let emo = EncMeshOptions {
+        enable_enc_mesh: config.enable_encrypted_mesh,
+        lighthouse_pub_ip: Some(config.lighthouse_pub_ip.clone()),
+    };
+    let cdh_client = CDHClient::new(emo).context("Failed to create CDH Client")?;
 
     // skip launch of api-server-rest
     if config.guest_components_procs == GuestComponentsProcs::ConfidentialDataHub {

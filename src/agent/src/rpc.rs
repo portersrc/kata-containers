@@ -1247,6 +1247,7 @@ impl agent_ttrpc::AgentService for AgentService {
             let _ = fs::create_dir_all(CONTAINER_BASE);
 
             s.hostname = req.hostname.clone();
+            info!(sl(), "porter s.hostname is: {}", s.hostname);
             s.running = true;
 
             if !req.sandbox_id.is_empty() {
@@ -1258,6 +1259,22 @@ impl agent_ttrpc::AgentService for AgentService {
             }
 
             s.setup_shared_namespaces().await.map_ttrpc_err(same)?;
+        }
+
+        info!(sl(), "porter rpc.rs create_sandbox");
+        if let Some(cdh) = self.cdh_client.as_ref() {
+            info!(sl(), "porter cdh-client is a thing");
+
+            if cdh.enc_mesh_options.enable_enc_mesh {
+                info!(sl(), "porter enable_enc_mesh is true");
+                info!(sl(), "porter lighthouse-pub-ip: {}", cdh.enc_mesh_options.lighthouse_pub_ip.as_ref().unwrap());
+                let _rc = cdh.set_up_encrypted_mesh(req.hostname.clone()).await;
+                info!(sl(), "porter after calling cdh.set_up_encrypted_mesh");
+            } else {
+                info!(sl(), "porter enable_enc_mesh is false");
+            }
+        } else {
+            info!(sl(), "porter no access to a cdh-client");
         }
 
         let m = add_storages(sl(), req.storages.clone(), &self.sandbox, None)

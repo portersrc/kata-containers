@@ -12,9 +12,11 @@ use derivative::Derivative;
 use protocols::{
     confidential_data_hub, confidential_data_hub_ttrpc_async,
     confidential_data_hub_ttrpc_async::{SealedSecretServiceClient, SecureMountServiceClient},
+    encrypted_mesh, encrypted_mesh_ttrpc_async, encrypted_mesh_ttrpc_async::EncryptedMeshServiceClient,
 };
 
 use crate::CDH_SOCKET_URI;
+//use log::info;
 
 // Nanoseconds
 const CDH_API_TIMEOUT: i64 = 50 * 1000 * 1000 * 1000;
@@ -27,18 +29,36 @@ pub struct CDHClient {
     sealed_secret_client: SealedSecretServiceClient,
     #[derivative(Debug = "ignore")]
     secure_mount_client: SecureMountServiceClient,
+    #[derivative(Debug = "ignore")]
+    encrypted_mesh_client: EncryptedMeshServiceClient,
+
+    pub enc_mesh_options: EncMeshOptions,
+}
+
+#[derive(Derivative)]
+#[derivative(Clone, Debug)]
+pub struct EncMeshOptions {
+    pub enable_enc_mesh: bool,
+    pub lighthouse_pub_ip: Option<String>,
 }
 
 impl CDHClient {
-    pub fn new() -> Result<Self> {
+    pub fn new(enc_mesh_options: EncMeshOptions) -> Result<Self> {
         let client = ttrpc::asynchronous::Client::connect(CDH_SOCKET_URI)?;
         let sealed_secret_client =
             confidential_data_hub_ttrpc_async::SealedSecretServiceClient::new(client.clone());
         let secure_mount_client =
             confidential_data_hub_ttrpc_async::SecureMountServiceClient::new(client);
+        // FIXME whatdo here?
+        let client2 = ttrpc::asynchronous::Client::connect(CDH_SOCKET_URI)?;
+        let encrypted_mesh_client =
+            encrypted_mesh_ttrpc_async::EncryptedMeshServiceClient::new(client2);
+
         Ok(CDHClient {
             sealed_secret_client,
             secure_mount_client,
+            encrypted_mesh_client,
+            enc_mesh_options,
         })
     }
 
@@ -83,6 +103,20 @@ impl CDHClient {
         self.secure_mount_client
             .secure_mount(ttrpc::context::with_timeout(CDH_API_TIMEOUT), &req)
             .await?;
+        Ok(())
+    }
+
+    pub async fn set_up_encrypted_mesh(&self, pod_name: String) -> Result<()> {
+        let mut input = encrypted_mesh::SetUpEncryptedMeshRequest::new();
+        input.set_pod_name(pod_name);
+        input.set_lighthouse_pub_ip(self.enc_mesh_options.lighthouse_pub_ip.as_ref().unwrap().into());
+
+        let _rc = self
+            .encrypted_mesh_client
+            .set_up_encrypted_mesh(ttrpc::context::with_timeout(CDH_API_TIMEOUT), &input)
+            .await?;
+        //Ok(unsealed_secret.plaintext)
+
         Ok(())
     }
 }
@@ -160,7 +194,8 @@ mod tests {
         start_ttrpc_server();
         std::thread::sleep(std::time::Duration::from_secs(2));
 
-        let cc = Some(CDHClient::new().unwrap());
+        let emo = EncMeshOptions{ enable_enc_mesh: false, lighthouse_pub_ip: None };
+        let cc = Some(CDHClient::new(emo).unwrap());
         let cdh_client = cc.as_ref().ok_or(anyhow!("get cdh_client failed")).unwrap();
         let sealed_env = String::from("key=sealed.testdata");
         let unsealed_env = cdh_client.unseal_env(&sealed_env).await.unwrap();

@@ -43,7 +43,7 @@ RUN apt-get update && \
 	apt-get clean && rm -rf /var/lib/apt/lists/ && \
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${RUST_TOOLCHAIN}
 
-ENV LIBC="gnu"
+ENV LIBC="musl"
 RUN ARCH=$(uname -m); \
 	rust_arch=""; \
     	case "${ARCH}" in \

@@ -12,6 +12,7 @@ use std::time;
 use strum_macros::{Display, EnumString};
 use tracing::instrument;
 use url::Url;
+use log::info;
 
 use kata_types::config::default::DEFAULT_AGENT_VSOCK_PORT;
 
@@ -32,6 +33,8 @@ const GUEST_COMPONENTS_PROCS_OPTION: &str = "agent.guest_components_procs";
 #[cfg(feature = "guest-pull")]
 const IMAGE_REGISTRY_AUTH_OPTION: &str = "agent.image_registry_auth";
 const SECURE_STORAGE_INTEGRITY_OPTION: &str = "agent.secure_storage_integrity";
+const ENABLE_ENCRYPTED_MESH_OPTION: &str = "agent.enable_encrypted_mesh";
+const LIGHTHOUSE_PUB_IP_OPTION: &str = "agent.lighthouse_pub_ip";
 
 // Configure the proxy settings for HTTPS requests in the guest,
 // to solve the problem of not being able to access the specified image in some cases.
@@ -47,6 +50,7 @@ const VSOCK_ADDR: &str = "vsock://-1";
 const SERVER_ADDR_ENV_VAR: &str = "KATA_AGENT_SERVER_ADDR";
 const LOG_LEVEL_ENV_VAR: &str = "KATA_AGENT_LOG_LEVEL";
 const TRACING_ENV_VAR: &str = "KATA_AGENT_TRACING";
+// TODO enable encrypted mesh env variable support?
 
 const ERR_INVALID_LOG_LEVEL: &str = "invalid log level";
 const ERR_INVALID_LOG_LEVEL_PARAM: &str = "invalid log level parameter";
@@ -104,6 +108,8 @@ pub struct AgentConfig {
     pub passfd_listener_port: i32,
     pub unified_cgroup_hierarchy: bool,
     pub tracing: bool,
+    pub enable_encrypted_mesh: bool,
+    pub lighthouse_pub_ip: String,
     pub supports_seccomp: bool,
     pub https_proxy: String,
     pub no_proxy: String,
@@ -127,6 +133,8 @@ pub struct AgentConfigBuilder {
     pub passfd_listener_port: Option<i32>,
     pub unified_cgroup_hierarchy: Option<bool>,
     pub tracing: Option<bool>,
+    pub enable_encrypted_mesh: Option<bool>,
+    pub lighthouse_pub_ip: Option<String>,
     pub https_proxy: Option<String>,
     pub no_proxy: Option<String>,
     pub guest_components_rest_api: Option<GuestComponentsFeatures>,
@@ -194,6 +202,8 @@ impl Default for AgentConfig {
             passfd_listener_port: 0,
             unified_cgroup_hierarchy: false,
             tracing: false,
+            enable_encrypted_mesh: false,
+            lighthouse_pub_ip: String::from(""),
             supports_seccomp: rpc::have_seccomp(),
             https_proxy: String::from(""),
             no_proxy: String::from(""),
@@ -231,6 +241,8 @@ impl FromStr for AgentConfig {
         config_override!(agent_config_builder, agent_config, passfd_listener_port);
         config_override!(agent_config_builder, agent_config, unified_cgroup_hierarchy);
         config_override!(agent_config_builder, agent_config, tracing);
+        config_override!(agent_config_builder, agent_config, enable_encrypted_mesh);
+        config_override!(agent_config_builder, agent_config, lighthouse_pub_ip);
         config_override!(agent_config_builder, agent_config, https_proxy);
         config_override!(agent_config_builder, agent_config, no_proxy);
         config_override!(
@@ -250,6 +262,7 @@ impl AgentConfig {
     #[instrument]
     #[allow(clippy::redundant_closure_call)]
     pub fn from_cmdline(file: &str, args: Vec<String>) -> Result<AgentConfig> {
+        info!("porter config from_cmdline");
         // If config file specified in the args, generate our config from it
         let config_position = args.iter().position(|a| a == "--config" || a == "-c");
         if let Some(config_position) = config_position {
@@ -267,6 +280,7 @@ impl AgentConfig {
         let cmdline = fs::read_to_string(file)?;
         let params: Vec<&str> = cmdline.split_ascii_whitespace().collect();
         for param in params.iter() {
+            info!("porter config param: {}", param);
             // If we get a configuration file path from the command line, we
             // generate our config from it.
             // The agent will fail to start if the configuration file is not present,
@@ -289,6 +303,9 @@ impl AgentConfig {
             }
 
             parse_cmdline_param!(param, TRACE_MODE_OPTION, config.tracing, get_bool_value);
+
+            parse_cmdline_param!(param, ENABLE_ENCRYPTED_MESH_OPTION, config.enable_encrypted_mesh, get_bool_value);
+            parse_cmdline_param!(param, LIGHTHOUSE_PUB_IP_OPTION, config.lighthouse_pub_ip, get_string_value);
 
             // parse cmdline options
             parse_cmdline_param!(param, LOG_LEVEL_OPTION, config.log_level, get_log_level);
@@ -378,6 +395,7 @@ impl AgentConfig {
 
     #[instrument]
     pub fn from_config_file(file: &str) -> Result<AgentConfig> {
+        info!("porter config from_config_file");
         let config = fs::read_to_string(file)
             .with_context(|| format!("Failed to read config file {}", file))?;
         AgentConfig::from_str(&config)
@@ -385,6 +403,7 @@ impl AgentConfig {
 
     #[instrument]
     fn override_config_from_envs(&mut self) {
+        info!("porter config override_config_from_envs");
         if let Ok(addr) = env::var(SERVER_ADDR_ENV_VAR) {
             self.server_addr = addr;
         }
@@ -405,6 +424,7 @@ impl AgentConfig {
 
 #[instrument]
 fn get_vsock_port(p: &str) -> Result<i32> {
+    info!("porter config get_vsock_port");
     let fields: Vec<&str> = p.split('=').collect();
     ensure!(fields.len() == 2, "invalid port parameter");
 
@@ -418,6 +438,7 @@ fn get_vsock_port(p: &str) -> Result<i32> {
 // golang-based agent.
 #[instrument]
 fn logrus_to_slog_level(logrus_level: &str) -> Result<slog::Level> {
+    info!("porter config logrus_to_slog_level");
     let level = match logrus_level {
         // Note: different semantics to logrus: log, but don't panic.
         "fatal" | "panic" => slog::Level::Critical,
@@ -439,6 +460,7 @@ fn logrus_to_slog_level(logrus_level: &str) -> Result<slog::Level> {
 
 #[instrument]
 fn get_log_level(param: &str) -> Result<slog::Level> {
+    info!("porter config get_log_level");
     let fields: Vec<&str> = param.split('=').collect();
     ensure!(fields.len() == 2, ERR_INVALID_LOG_LEVEL_PARAM);
     ensure!(fields[0] == LOG_LEVEL_OPTION, ERR_INVALID_LOG_LEVEL_KEY);
@@ -448,6 +470,7 @@ fn get_log_level(param: &str) -> Result<slog::Level> {
 
 #[instrument]
 fn get_hotplug_timeout(param: &str) -> Result<time::Duration> {
+    info!("porter config get_hotplug_timeout");
     let fields: Vec<&str> = param.split('=').collect();
     ensure!(fields.len() == 2, ERR_INVALID_HOTPLUG_TIMEOUT);
     ensure!(
@@ -463,7 +486,8 @@ fn get_hotplug_timeout(param: &str) -> Result<time::Duration> {
 }
 
 #[instrument]
-fn get_bool_value(param: &str) -> Result<bool> {
+pub fn get_bool_value(param: &str) -> Result<bool> {
+    info!("porter config get_bool_value");
     let fields: Vec<&str> = param.split('=').collect();
 
     if fields.len() != 2 {
@@ -489,6 +513,7 @@ fn get_bool_value(param: &str) -> Result<bool> {
 //   since this is considered to be invalid.
 #[instrument]
 fn get_string_value(param: &str) -> Result<String> {
+    info!("porter config get_string_value");
     let fields: Vec<&str> = param.split('=').collect();
     ensure!(fields.len() >= 2, ERR_INVALID_GET_VALUE_PARAM);
 
@@ -503,6 +528,7 @@ fn get_string_value(param: &str) -> Result<String> {
 
 #[instrument]
 fn get_container_pipe_size(param: &str) -> Result<i32> {
+    info!("porter config get_container_pipe_size");
     let fields: Vec<&str> = param.split('=').collect();
     ensure!(fields.len() == 2, ERR_INVALID_CONTAINER_PIPE_SIZE);
 
@@ -523,12 +549,14 @@ fn get_container_pipe_size(param: &str) -> Result<i32> {
 
 #[instrument]
 fn get_url_value(param: &str) -> Result<String> {
+    info!("porter config get_url_value");
     let value = get_string_value(param)?;
     Ok(Url::parse(&value)?.to_string())
 }
 
 #[instrument]
 fn get_guest_components_features_value(param: &str) -> Result<GuestComponentsFeatures> {
+    info!("porter config get_guest_components_features_value");
     let fields: Vec<&str> = param.split('=').collect();
     ensure!(fields.len() >= 2, ERR_INVALID_GET_VALUE_PARAM);
     // We need name (but the value can be blank)
@@ -540,6 +568,7 @@ fn get_guest_components_features_value(param: &str) -> Result<GuestComponentsFea
 
 #[instrument]
 fn get_guest_components_procs_value(param: &str) -> Result<GuestComponentsProcs> {
+    info!("porter config get_guest_components_procs_value");
     let fields: Vec<&str> = param.split('=').collect();
     ensure!(fields.len() >= 2, ERR_INVALID_GET_VALUE_PARAM);
 

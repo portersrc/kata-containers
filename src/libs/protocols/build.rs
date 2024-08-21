@@ -204,6 +204,7 @@ fn real_main() -> Result<(), std::io::Error> {
                 "protos/agent.proto",
                 "protos/health.proto",
                 "protos/confidential_data_hub.proto",
+                "protos/encrypted_mesh.proto",
             ],
             true,
         )?;
@@ -214,6 +215,10 @@ fn real_main() -> Result<(), std::io::Error> {
             "src/confidential_data_hub_ttrpc.rs",
             "src/confidential_data_hub_ttrpc_async.rs",
         )?;
+        fs::rename(
+            "src/encrypted_mesh_ttrpc.rs",
+            "src/encrypted_mesh_ttrpc_async.rs",
+        )?;
     }
 
     codegen(
@@ -222,6 +227,7 @@ fn real_main() -> Result<(), std::io::Error> {
             "protos/agent.proto",
             "protos/health.proto",
             "protos/confidential_data_hub.proto",
+            "protos/encrypted_mesh.proto",
         ],
         false,
     )?;
